@@ -9,6 +9,27 @@ playerInfo name gameNumber =
     name ++ " - Game #" ++ toString gameNumber
 
 
+
+-- MODEL
+
+
+initalModel =
+    { name = "Jerome"
+    , gameNumber = 1
+    , entries = intialEntries
+    }
+
+
+initialEntries =
+    [ { id = 1, phrase = "Future-proof", points = 100, marked = False }
+    , { id = 1, phrase = "Doing Agile", points = 200, marked = False }
+    ]
+
+
+
+-- VIEW
+
+
 viewHeader : String -> Html msg
 viewHeader title =
     header []
