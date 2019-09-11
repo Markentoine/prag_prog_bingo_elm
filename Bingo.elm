@@ -3,6 +3,9 @@ module Bingo exposing (..)
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick)
+import Http
+import Json.Decode as Decode exposing (Decoder, field, succeed)
+import Random
 
 
 
@@ -13,16 +16,32 @@ type Msg
     = NewGame
     | Mark Int
     | SortByPoint
+    | NewRandom Int
+    | NewEntries (Result Http.Error (List Entry))
+    | Alert
 
 
-update : Msg -> Model -> Model
+update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
+        Alert -> 
+
         NewGame ->
-            { model
+            ( { model
                 | gameNumber = model.gameNumber + 1
-                , entries = initialEntries
-            }
+              }
+            , getEntries
+            )
+
+        NewEntries (Ok randomEntries) ->
+            ( { model | entries = randomEntries }, Cmd.none )
+
+        NewEntries (Err error) ->
+            let
+                errorMessage =
+                    "Server Down"
+            in
+            ( model, Cmd.none )
 
         Mark id ->
             let
@@ -33,10 +52,47 @@ update msg model =
                     else
                         e
             in
-            { model | entries = List.map markEntry model.entries }
+            ( { model | entries = List.map markEntry model.entries }, Cmd.none )
 
         SortByPoint ->
-            { model | entries = List.sortBy .points model.entries }
+            ( { model | entries = List.sortBy .points model.entries }, Cmd.none )
+
+        NewRandom randomNum ->
+            ( { model | gameNumber = randomNum }, Cmd.none )
+
+
+
+-- DECODERS
+
+
+entryDecoder : Decoder Entry
+entryDecoder =
+    Decode.map4 Entry
+        (field "id" Decode.int)
+        (field "phrase" Decode.string)
+        (field "points" Decode.int)
+        (succeed False)
+
+
+
+-- COMMANDS
+
+
+generateRandomNumber : Cmd Msg
+generateRandomNumber =
+    Random.generate (\num -> NewRandom num) (Random.int 1 100)
+
+
+entriesUrl : String
+entriesUrl =
+    "http://localhost:3000/random-entries"
+
+
+getEntries : Cmd Msg
+getEntries =
+    Decode.list entryDecoder
+        |> Http.get entriesUrl
+        |> Http.send NewEntries
 
 
 
@@ -47,6 +103,7 @@ type alias Model =
     { name : String
     , gameNumber : Int
     , entries : List Entry
+    , alertMessage : Maybe String
     }
 
 
@@ -58,21 +115,13 @@ type alias Entry =
     }
 
 
-initialModel : { name : String, gameNumber : Int, entries : List Entry }
+initialModel : { name : String, gameNumber : Int, entries : List Entry, alertMessage : Maybe String }
 initialModel =
     { name = "Jerome"
     , gameNumber = 1
-    , entries = initialEntries
+    , entries = []
+    , alertMessage = Nothing
     }
-
-
-initialEntries : List Entry
-initialEntries =
-    [ Entry 1 "Future-proof" 400 False
-    , Entry 2 "Doing Agile" 200 False
-    , Entry 3 "In The Cloud" 300 False
-    , Entry 4 "Rock-Star Ninja" 100 False
-    ]
 
 
 
@@ -117,6 +166,31 @@ viewEntryList entries =
         |> ul []
 
 
+sumMarkedPoints : List Entry -> Int
+sumMarkedPoints entries =
+    entries
+        |> List.filter .marked
+        |> List.map .points
+        |> List.foldl (+) 0
+
+
+viewScore : Int -> Html Msg
+viewScore sum =
+    div [ class "score" ]
+        [ span [ class "label" ] [ text "Score" ]
+        , span [ class "value" ] [ text (toString sum) ]
+        ]
+
+
+viewAllEntriesMarked : List Entry -> Html Msg
+viewAllEntriesMarked entries =
+    let
+        allEntriesMarked =
+            List.all .marked entries
+    in
+    div [] [ text ("All entries marked: " ++ toString allEntriesMarked) ]
+
+
 viewFooter : Html Msg
 viewFooter =
     footer []
@@ -131,18 +205,21 @@ view model =
         [ viewHeader "BUZZWORD BINGO"
         , viewPlayer model.name model.gameNumber
         , viewEntryList model.entries
+        , viewScore (sumMarkedPoints model.entries)
         , div [ class "button-group" ]
             [ button [ onClick NewGame ] [ text "New Game" ]
             , button [ onClick SortByPoint ] [ text "Sort by Points" ]
             ]
+        , viewAllEntriesMarked model.entries
         , viewFooter
         ]
 
 
 main : Program Never Model Msg
 main =
-    Html.beginnerProgram
-        { model = initialModel
+    Html.program
+        { init = ( initialModel, getEntries )
         , view = view
         , update = update
+        , subscriptions = \_ -> Sub.none
         }
