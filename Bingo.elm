@@ -41,7 +41,7 @@ update msg model =
                 errorMessage =
                     "Server Down"
             in
-            ( model, Cmd.none )
+            ( { model | alertMessage = errorMessage }, Cmd.none )
 
         Mark id ->
             let
