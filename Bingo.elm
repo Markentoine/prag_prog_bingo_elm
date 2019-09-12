@@ -23,17 +23,30 @@ type Msg
     | ShareScore
     | NewScore (Result Http.Error Score)
     | SetNameInput String
+    | SaveName
+    | CancelName
+    | ChangeGameState GameState
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
+        ChangeGameState state ->
+            ( { model | gameState = state }, Cmd.none )
+
+        SaveName ->
+            ( { model | name = model.nameInput, nameInput = "", gameState = Playing }, Cmd.none )
+
+        CancelName ->
+            ( { model | nameInput = "", gameState = Playing }, Cmd.none )
+
         CloseAlert ->
             ( { model | alertMessage = Nothing }, Cmd.none )
 
         NewGame ->
             ( { model
                 | gameNumber = model.gameNumber + 1
+                , gameState = EnteringName
               }
             , getEntries
             )
@@ -82,7 +95,7 @@ update msg model =
             ( { model | entries = List.map markEntry model.entries }, Cmd.none )
 
         SetNameInput input_value ->
-            ( { model | name = input_value }, Cmd.none )
+            ( { model | nameInput = input_value }, Cmd.none )
 
         ShareScore ->
             ( model, postScore model )
@@ -168,12 +181,18 @@ postScore model =
 -- MODEL
 
 
+type GameState
+    = EnteringName
+    | Playing
+
+
 type alias Model =
     { name : String
     , gameNumber : Int
     , entries : List Entry
     , alertMessage : Maybe String
     , nameInput : String
+    , gameState : GameState
     }
 
 
@@ -199,6 +218,7 @@ initialModel =
     , entries = []
     , alertMessage = Nothing
     , nameInput = ""
+    , gameState = EnteringName
     }
 
 
@@ -226,7 +246,9 @@ viewPlayer name gameNumber =
                 |> Html.text
     in
     h2 [ id "info", class "classy" ]
-        [ playerInfoText ]
+        [ a [ href "#", onClick (ChangeGameState EnteringName) ] [ text (String.toUpper name) ]
+        , text (("- GAME #" ++ toString gameNumber) |> String.toUpper)
+        ]
 
 
 viewEntryItem : Entry -> Html Msg
@@ -271,17 +293,23 @@ viewAllEntriesMarked entries =
 
 viewNameInput : Model -> Html Msg
 viewNameInput model =
-    div [ class "name-input" ]
-        [ input
-            [ type_ "text"
-            , placeholder "Who's playing?"
-            , autofocus True
-            , onInput SetNameInput
-            ]
-            []
-        , button [] [ text "Save" ]
-        , button [] [ text "Cancel" ]
-        ]
+    case model.gameState of
+        EnteringName ->
+            div [ class "name-input" ]
+                [ input
+                    [ type_ "text"
+                    , placeholder "Who's playing?"
+                    , autofocus True
+                    , value model.nameInput
+                    , onInput SetNameInput
+                    ]
+                    []
+                , button [ onClick SaveName ] [ text "Save" ]
+                , button [ onClick CancelName ] [ text "Cancel" ]
+                ]
+
+        Playing ->
+            text ""
 
 
 viewAlertMessage : Maybe String -> Html Msg
