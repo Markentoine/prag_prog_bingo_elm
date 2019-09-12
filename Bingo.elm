@@ -2,9 +2,10 @@ module Bingo exposing (..)
 
 import Html exposing (..)
 import Html.Attributes exposing (..)
-import Html.Events exposing (onClick)
+import Html.Events exposing (onClick, onInput)
 import Http
 import Json.Decode as Decode exposing (Decoder, field, succeed)
+import Json.Encode as Encode exposing (..)
 import Random
 
 
@@ -18,13 +19,17 @@ type Msg
     | SortByPoint
     | NewRandom Int
     | NewEntries (Result Http.Error (List Entry))
-    | Alert
+    | CloseAlert
+    | ShareScore
+    | NewScore (Result Http.Error Score)
+    | SetNameInput String
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        Alert -> 
+        CloseAlert ->
+            ( { model | alertMessage = Nothing }, Cmd.none )
 
         NewGame ->
             ( { model
@@ -39,9 +44,31 @@ update msg model =
         NewEntries (Err error) ->
             let
                 errorMessage =
-                    "Server Down"
+                    case error of
+                        Http.NetworkError ->
+                            "Le serveur fonctionne?"
+
+                        _ ->
+                            "PROBLEME!"
             in
-            ( { model | alertMessage = errorMessage }, Cmd.none )
+            ( { model | alertMessage = Just errorMessage }, Cmd.none )
+
+        NewScore (Ok score) ->
+            let
+                message =
+                    "Your score of "
+                        ++ toString score.score
+                        ++ "has been successfully shared!"
+            in
+            ( { model | alertMessage = Just message }, Cmd.none )
+
+        NewScore (Err error) ->
+            let
+                message =
+                    "Unable to share your score: "
+                        ++ toString error
+            in
+            ( { model | alertMessage = Just message }, Cmd.none )
 
         Mark id ->
             let
@@ -54,6 +81,12 @@ update msg model =
             in
             ( { model | entries = List.map markEntry model.entries }, Cmd.none )
 
+        SetNameInput input_value ->
+            ( { model | name = input_value }, Cmd.none )
+
+        ShareScore ->
+            ( model, postScore model )
+
         SortByPoint ->
             ( { model | entries = List.sortBy .points model.entries }, Cmd.none )
 
@@ -62,7 +95,7 @@ update msg model =
 
 
 
--- DECODERS
+-- DECODERS / ENCODERS
 
 
 entryDecoder : Decoder Entry
@@ -72,6 +105,26 @@ entryDecoder =
         (field "phrase" Decode.string)
         (field "points" Decode.int)
         (succeed False)
+
+
+scoreDecoder : Decoder Score
+scoreDecoder =
+    Decode.map3 Score
+        (field "id" Decode.int)
+        (field "name" Decode.string)
+        (field "score" Decode.int)
+
+
+encodeScore : Model -> Encode.Value
+encodeScore model =
+    Encode.object
+        [ ( "name"
+          , Encode.string model.name
+          )
+        , ( "score"
+          , Encode.int (sumMarkedPoints model.entries)
+          )
+        ]
 
 
 
@@ -95,6 +148,22 @@ getEntries =
         |> Http.send NewEntries
 
 
+postScore : Model -> Cmd Msg
+postScore model =
+    let
+        url =
+            "http://localhost:3000/scores"
+
+        body =
+            encodeScore model
+                |> Http.jsonBody
+
+        request =
+            Http.post url body scoreDecoder
+    in
+    Http.send NewScore request
+
+
 
 -- MODEL
 
@@ -104,6 +173,7 @@ type alias Model =
     , gameNumber : Int
     , entries : List Entry
     , alertMessage : Maybe String
+    , nameInput : String
     }
 
 
@@ -115,12 +185,20 @@ type alias Entry =
     }
 
 
-initialModel : { name : String, gameNumber : Int, entries : List Entry, alertMessage : Maybe String }
+type alias Score =
+    { id : Int
+    , name : String
+    , score : Int
+    }
+
+
+initialModel : Model
 initialModel =
-    { name = "Jerome"
+    { name = "Anonymous"
     , gameNumber = 1
     , entries = []
     , alertMessage = Nothing
+    , nameInput = ""
     }
 
 
@@ -191,6 +269,34 @@ viewAllEntriesMarked entries =
     div [] [ text ("All entries marked: " ++ toString allEntriesMarked) ]
 
 
+viewNameInput : Model -> Html Msg
+viewNameInput model =
+    div [ class "name-input" ]
+        [ input
+            [ type_ "text"
+            , placeholder "Who's playing?"
+            , autofocus True
+            , onInput SetNameInput
+            ]
+            []
+        , button [] [ text "Save" ]
+        , button [] [ text "Cancel" ]
+        ]
+
+
+viewAlertMessage : Maybe String -> Html Msg
+viewAlertMessage alertMessage =
+    case alertMessage of
+        Just message ->
+            div [ class "alert" ]
+                [ span [ class "close", onClick CloseAlert ] [ text "X" ]
+                , text message
+                ]
+
+        Nothing ->
+            text ""
+
+
 viewFooter : Html Msg
 viewFooter =
     footer []
@@ -204,11 +310,13 @@ view model =
     div [ class "content" ]
         [ viewHeader "BUZZWORD BINGO"
         , viewPlayer model.name model.gameNumber
+        , viewAlertMessage model.alertMessage
+        , viewNameInput model
         , viewEntryList model.entries
         , viewScore (sumMarkedPoints model.entries)
         , div [ class "button-group" ]
             [ button [ onClick NewGame ] [ text "New Game" ]
-            , button [ onClick SortByPoint ] [ text "Sort by Points" ]
+            , button [ onClick ShareScore ] [ text "Share Score" ]
             ]
         , viewAllEntriesMarked model.entries
         , viewFooter
